@@ -32,13 +32,25 @@ def get_access_token(cookie: str) -> str:
     return response.json()['access_token']
 
 
-def get_playlist_urls(
+def get_playlist_ids_from_categories(
     access_token: str, 
-    genres: list
-) -> dict:
-    genres_playlists = {}
-    for genre in genres:
-        playlist_url = f"https://api.spotify.com/v1/browse/categories/{genre}/playlists?country=TW&limit=5"
+    categories: list,
+    country: str,
+    no_of_playlists: int
+) -> list:
+    """
+    Parameters:
+        access_token (str): Spotify access token. (e.g. BQDZ...)
+        categories (list): List of Spotify categories. (e.g. ['pop', 'rock', 'hiphop'])
+        country (str): Country code. (e.g. TW, US, ID)
+        no_of_playlists (int): Number of playlists to be retrieved from each category. (e.g. 10)
+
+    Output:
+        A list of playlist URLs from one or multiple categories.
+    """
+    urls = list()
+    for category in categories:
+        playlist_url = f"https://api.spotify.com/v1/browse/categories/{category}/playlists?country={country}&limit={no_of_playlists}"
 
         headers = {
             'Authorization': f'Bearer {access_token}',
@@ -49,32 +61,34 @@ def get_playlist_urls(
         if response.status_code == 200:
             playlists = response.json()['playlists']['items']
             time.sleep(1)
-            genres_playlists[genre] = [playlist['href'] for playlist in playlists]
+            urls = [playlist['href'] for playlist in playlists]
         else:
             print(f'Error: {response.status_code} - {response.json()}')
         
-    return genres_playlists
+    return urls
 
 
-def get_song_urls(access_token: str, playlists_based_on_genres: dict) -> list:
+def get_song_ids_from_playlist(
+    access_token: str, 
+    playlist_urls: list
+) -> list:
     unheard_song_ids = list()
-    for key, value in playlists_based_on_genres.items():
-        for url in value:
-            playlist_url = f"{url}/tracks"
-            headers = {
-                'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json'
-            }
-            response = requests.get(playlist_url, headers=headers)
-            if response.status_code == 200:
-                songs = response.json()['items']
-                time.sleep(1)
-            else:
-                print(f'Error: {response.status_code} - {response.json()}')
+    for url in playlist_urls:
+        playlist_url = f"{url}/tracks"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        response = requests.get(playlist_url, headers=headers)
+        if response.status_code == 200:
+            songs = response.json()['items']
+            time.sleep(1)
+        else:
+            print(f'Error: {response.status_code} - {response.json()}')
 
-            for song in songs:
-                if song['track']['id'] not in unheard_song_ids:
-                    unheard_song_ids.append(song['track']['id'])
+        for song in songs:
+            if song['track']['id'] not in unheard_song_ids:
+                unheard_song_ids.append(song['track']['id'])
     return unheard_song_ids
 
 

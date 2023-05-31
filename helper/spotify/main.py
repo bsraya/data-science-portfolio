@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 def get_authorization_url() -> str:
     params = {
         'client_id': os.environ['CLIENT_ID'],
@@ -34,23 +35,29 @@ def get_access_token(cookie: str) -> str:
 
 def get_playlist_ids_from_categories(
     access_token: str, 
-    categories: list,
+    categories: dict,
     country: str,
     no_of_playlists: int
 ) -> list:
     """
     Parameters:
         access_token (str): Spotify access token. (e.g. BQDZ...)
-        categories (list): List of Spotify categories. (e.g. ['pop', 'rock', 'hiphop'])
+        categories (dict): A dict of categories and their IDs. (e.g. genres = { 'pop': '0JQ5DAqbMKFEC4WFtoNRpw', 'mood': '0JQ5DAqbMKFzHmL4tf05da'})
         country (str): Country code. (e.g. TW, US, ID)
         no_of_playlists (int): Number of playlists to be retrieved from each category. (e.g. 10)
 
     Output:
         A list of playlist URLs from one or multiple categories.
+        e.g.
+        genres = {
+            'pop': '0JQ5...',
+            ...
+        }
     """
-    urls = list()
-    for category in categories:
-        playlist_url = f"https://api.spotify.com/v1/browse/categories/{category}/playlists?country={country}&limit={no_of_playlists}"
+
+    categories_ids = dict()
+    for category, category_id in categories.items():
+        playlist_url = f"https://api.spotify.com/v1/browse/categories/{category_id}/playlists?country={country}&limit={no_of_playlists}"
 
         headers = {
             'Authorization': f'Bearer {access_token}',
@@ -61,35 +68,62 @@ def get_playlist_ids_from_categories(
         if response.status_code == 200:
             playlists = response.json()['playlists']['items']
             time.sleep(1)
-            urls = [playlist['href'] for playlist in playlists]
+            categories_ids[category] = [playlist['href'] for playlist in playlists]
         else:
             print(f'Error: {response.status_code} - {response.json()}')
         
-    return urls
+    return categories_ids
 
 
-def get_song_ids_from_playlist(
+def get_song_ids_from_playlists(
     access_token: str, 
-    playlist_urls: list
+    playlist_urls: dict
 ) -> list:
-    unheard_song_ids = list()
-    for url in playlist_urls:
-        playlist_url = f"{url}/tracks"
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
-        }
-        response = requests.get(playlist_url, headers=headers)
-        if response.status_code == 200:
-            songs = response.json()['items']
-            time.sleep(1)
-        else:
-            print(f'Error: {response.status_code} - {response.json()}')
+    """
+    Parameters:
+        access_token (str): Spotify access token. (e.g. BQDZ...)
+        playlist_urls (dict): A dict of playlist URLs from one or multiple categories. 
+        (
+            e.g. playlist_urls = { 
+                'pop': [{playlist_id1}, {playlist_id2}, ...], 
+                'mood': [{playlist_id1}, {playlist_id2}, ...], 
+                ...
+            }
+        )
+    
+    Output:
+        [
+            {
+                'genre': 'pop',
+                'playlist_id': {playlist_id1}
+                'song_ids': [{song_id1}, {song_id2}, ...]
+            },
+            
+        ]
+        
+    """
 
-        for song in songs:
-            if song['track']['id'] not in unheard_song_ids:
-                unheard_song_ids.append(song['track']['id'])
-    return unheard_song_ids
+    songs = list()
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    for genre, urls in playlist_urls.items():
+        for url in urls:
+            playlist_url = f"{url}/tracks"
+            response = requests.get(playlist_url, headers=headers)
+            if response.status_code == 200:
+                songs = response.json()['items']
+                time.sleep(1)
+            else:
+                print(f'Error: {response.status_code} - {response.json()}')
+
+            songs.append({
+                'genre': genre,
+                'playlist_id': url.split('/')[-1],
+                'song_ids': [song['track']['id'] for song in songs]
+            })
+    return songs
 
 
 def get_spotify_songs_metadata(

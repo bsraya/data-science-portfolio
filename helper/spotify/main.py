@@ -77,16 +77,18 @@ def get_playlist_ids_from_categories(
 
 def get_song_ids_from_playlists(
     access_token: str, 
+    country: str,
     playlist_urls: dict
 ) -> list:
     """
     Parameters:
         access_token (str): Spotify access token. (e.g. BQDZ...)
+        country (str): Country code. (e.g. TW, US, ID)
         playlist_urls (dict): A dict of playlist URLs from one or multiple categories. 
         (
             e.g. playlist_urls = { 
-                'pop': [{playlist_id1}, {playlist_id2}, ...], 
-                'mood': [{playlist_id1}, {playlist_id2}, ...], 
+                'pop': [{playlist_url1}, {playlist_url2}, ...], 
+                'mood': [{playlist_url1}, {playlist_url2}, ...], 
                 ...
             }
         )
@@ -103,35 +105,34 @@ def get_song_ids_from_playlists(
         
     """
 
-    songs = list()
+    result = list()
     headers = {
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json'
     }
     for genre, urls in playlist_urls.items():
         for url in urls:
-            playlist_url = f"{url}/tracks"
+            playlist_url = f"{url}/tracks?market={country}&fields=items%28track%28id%29%29&limit=50"
             response = requests.get(playlist_url, headers=headers)
             if response.status_code == 200:
                 songs = response.json()['items']
                 time.sleep(1)
             else:
                 print(f'Error: {response.status_code} - {response.json()}')
-
-            songs.append({
+            result.append({
                 'genre': genre,
                 'playlist_id': url.split('/')[-1],
-                'song_ids': [song['track']['id'] for song in songs]
+                'song_ids': [song['track']['id'] for song in songs if song['track']['id'] is not None]
             })
-    return songs
+    return result
 
 
 def get_spotify_songs_metadata(
     df: pd.DataFrame,
     access_token: str, 
-    song_ids: list, 
-    listen: int, 
-    like: int
+    genre: str,
+    playlist_id: str,
+    song_ids: list
 ) -> pd.DataFrame:
     rows = []
     
@@ -140,48 +141,52 @@ def get_spotify_songs_metadata(
         'Content-Type': 'application/json'
     }
 
-    track_responses = requests.get(
-        f"https://api.spotify.com/v1/tracks?ids={'%2C'.join(song_ids)}",
-        headers=headers
-    ).json()
-    
-    time.sleep(0.5)
-    
-    audio_analysis_responses = requests.get(
-        f"https://api.spotify.com/v1/audio-features?ids={'%2C'.join(song_ids)}",
-        headers=headers
-    ).json()
-    
-    time.sleep(0.5)
+    batches = [song_ids[i:i + 10] for i in range(0, len(song_ids), 1)]
 
-    for track_response, audio_analysis_response in zip(track_responses['tracks'], audio_analysis_responses['audio_features']):
-        row = {
-            'id': track_response.get('id'),
-            'title': track_response.get('name'),
-            'artist(s)': ', '.join([artist['name'] for artist in track_response.get('album').get('artists')]),
-            'popularity': track_response.get('popularity'),
-            'danceability': audio_analysis_response['danceability'],
-            'energy': audio_analysis_response.get('energy'),
-            'key': audio_analysis_response.get('key'),
-            'loudness': audio_analysis_response.get('loudness'),
-            'mode': audio_analysis_response.get('mode'),
-            'speechiness': audio_analysis_response.get('speechiness'),
-            'acousticness': audio_analysis_response.get('acousticness'),
-            'instrumentalness': audio_analysis_response.get('instrumentalness'),
-            'liveness': audio_analysis_response.get('liveness'),
-            'valence': audio_analysis_response.get('valence'),
-            'tempo': audio_analysis_response.get('tempo'),
-            'type': audio_analysis_response.get('type'),
-            'id': audio_analysis_response.get('id'),
-            'uri': audio_analysis_response.get('uri'),
-            'track_href': audio_analysis_response.get('track_href'),
-            'analysis_url': audio_analysis_response.get('analysis_url'),
-            'duration_ms': audio_analysis_response.get('duration_ms'),
-            'time_signature': audio_analysis_response.get('time_signature'),
-            'listen': listen,
-            'like': like
-        }
-        rows.append(row)
+    for batch in batches:
+        track_responses = requests.get(
+            f"https://api.spotify.com/v1/tracks?ids={'%2C'.join(batch)}",
+            headers=headers
+        ).json()
+        time.sleep(0.1)
+        
+        audio_analysis_responses = requests.get(
+            f"https://api.spotify.com/v1/audio-features?ids={'%2C'.join(batch)}",
+            headers=headers
+        ).json()
+        time.sleep(0.1)
+
+        for track_response, audio_analysis_response in zip(track_responses['tracks'], audio_analysis_responses['audio_features']):
+            if audio_analysis_response is None:
+                continue
+
+            row = {
+                'id': track_response.get('id'),
+                'title': track_response.get('name'),
+                'playlist_id': playlist_id,
+                'category': genre,
+                'artist(s)': ', '.join([artist['name'] for artist in track_response.get('album').get('artists')]),
+                'popularity': track_response.get('popularity', 0),
+                'danceability': audio_analysis_response.get('danceability', 0),
+                'energy': audio_analysis_response.get('energy', 0),
+                'key': audio_analysis_response.get('key', 0),
+                'loudness': audio_analysis_response.get('loudness', 0),
+                'mode': audio_analysis_response.get('mode', 0),
+                'speechiness': audio_analysis_response.get('speechiness', 0),
+                'acousticness': audio_analysis_response.get('acousticness', 0),
+                'instrumentalness': audio_analysis_response.get('instrumentalness', 0),
+                'liveness': audio_analysis_response.get('liveness', 0),
+                'valence': audio_analysis_response.get('valence', 0),
+                'tempo': audio_analysis_response.get('tempo', 0),
+                'type': audio_analysis_response.get('type'),
+                'uri': audio_analysis_response.get('uri'),
+                'track_href': audio_analysis_response.get('track_href'),
+                'analysis_url': audio_analysis_response.get('analysis_url'),
+                'duration_ms': audio_analysis_response.get('duration_ms', 0),
+                'time_signature': audio_analysis_response.get('time_signature', 0),
+                'listen': 0
+            }
+            rows.append(row)
 
     df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
     return df

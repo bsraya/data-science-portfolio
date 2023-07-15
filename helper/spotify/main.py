@@ -75,7 +75,7 @@ def get_playlist_ids_from_categories(
     return categories_ids
 
 
-def get_song_ids_from_playlists(
+def get_songs_from_playlists(
     access_token: str, 
     playlist_urls: dict
 ) -> list:
@@ -126,7 +126,7 @@ def get_song_ids_from_playlists(
     return songs
 
 
-def get_spotify_songs_metadata(
+def get_songs_metadata(
     df: pd.DataFrame,
     access_token: str, 
     song_ids: list, 
